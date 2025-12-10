@@ -1,3 +1,192 @@
+# CoopCredit - Credit Application Service
+
+Professional Spring Boot microservice for managing credit applications, following Hexagonal Architecture, JWT security, Flyway migrations, and containerized deployment.
+
+## Overview
+
+CoopCredit implements a modular, secure service to register affiliates, submit credit applications and evaluate them using a deterministic external risk service (mock). The project emphasizes:
+
+- Hexagonal architecture (domain, use cases, ports, adapters)
+- JPA/Hibernate advanced usage with proper mappings and indexes
+- Authentication: JWT (stateless) + BCrypt password encoding
+- Flyway migrations for reliable DB versioning
+- Observability via Spring Boot Actuator
+- Containerization with Docker and docker-compose
+
+Repository structure (high level)
+
+```
+/- src/
+   /main/java/com/credits/coopCredit   -> main application code
+       /application/usecases           -> use cases (business logic)
+       /domain/model                   -> domain models (POJOs)
+       /infrastructure                 -> adapters, entities, config, web
+   /resources/db/migration            -> Flyway migrations V1..V4
+/- risk-central-mock-service/         -> lightweight mock of external risk central (Spring Boot)
+docker-compose.yml
+pom.xml
+```
+
+## Architecture diagram
+
+Simple component diagram:
+
+```mermaid
+flowchart TB
+  subgraph API
+    A[REST Controllers]
+    B[Use Cases / Services]
+  end
+  subgraph Infra
+    C[Adapters & Repositories]
+    D[Risk External Service]
+    E[Postgres DB]
+  end
+  A --> B --> C
+  B --> D
+  C --> E
+```
+
+## Quick prerequisites
+
+- Java 17 (JDK)
+- Maven 3.8+
+- Docker & Docker Compose (for full-stack runs and Testcontainers tests)
+
+## Environment variables
+
+Copy `.env.example` to `.env` and edit values. Important variables:
+
+- APP_NAME - container name
+- SERVER_PORT - host port for the app
+- DB_NAME, DB_USER, DB_PASSWORD, DB_PORT
+- JWT_SECRET - secret used to sign JWTs (use a long random value)
+- JWT_EXPIRATION - token TTL in milliseconds
+- RISK_SERVICE_URL - URL of the risk microservice (default in compose: http://risk:8081)
+- FLYWAY_* - flyway options
+
+## Build and run locally (no Docker)
+
+1. Build the app:
+
+```bash
+mvn -DskipTests package
+```
+
+2. Run the JAR:
+
+```bash
+java -jar target/CoopCredit-0.0.1-SNAPSHOT.jar
+```
+
+If you run locally, make sure `RISK_SERVICE_URL` points to the running risk mock (e.g. `http://localhost:8081`) or start the risk mock using the provided module.
+
+## Run full-stack with Docker Compose (recommended)
+
+This will bring up Postgres, the main application and the risk mock service.
+
+1. Create `.env` from `.env.example` and set proper secrets.
+
+```bash
+cp .env.example .env
+# edit .env and set JWT_SECRET, DB_PASSWORD, etc.
+```
+
+2. Start the stack:
+
+```bash
+docker-compose up --build
+```
+
+3. Access the API at `http://localhost:${SERVER_PORT}` (default 8080).
+
+Notes:
+
+- `RISK_SERVICE_URL` is injected to the app as `risk.service.url` property; when running via docker-compose the default value points to the `risk` service container at `http://risk:8081`.
+- Flyway runs automatically if enabled via `FLYWAY_ENABLED=true`.
+
+## Endpoints (summary)
+
+- POST /api/v1/auth/register — register user (public)
+- POST /api/v1/auth/login — authenticate and get JWT (public)
+- POST /credit-applications — create a credit application (requires ROLE_AFILIADO)
+- POST /risk-evaluation — risk mock (external service, used by the app)
+
+OpenAPI/Swagger UI is enabled (see `/swagger-ui.html`).
+
+## Security and Roles
+
+Roles in the system:
+
+- ROLE_AFILIADO — can create own credit applications
+- ROLE_ANALISTA — can access pending applications for review
+- ROLE_ADMIN — administrative operations
+
+The project includes Flyway migration V4 that creates `roles` and `users` tables and seeds example users. Passwords in migrations are hashed with BCrypt. For quick testing, use `/auth/register` to create new users.
+
+## Database migrations
+
+Flyway migrations are in `src/main/resources/db/migration`:
+
+- V1__schema.sql — base tables (affiliates, credit_applications, credit_evaluations)
+- V2__relaciones.sql — constraints, indices and checks (created by the team)
+- V3__datos_iniciales.sql — seed affiliates, evaluations and sample credit applications
+- V4__user_security.sql — roles and users for security
+
+If you need to re-run migrations, use a fresh database or clean the Flyway schema history table.
+
+## Testing
+
+Run unit and integration tests:
+
+```bash
+mvn test
+```
+
+Integration tests that use Testcontainers require Docker running.
+
+## Observability
+
+Actuator endpoints:
+
+- `/actuator/health`
+- `/actuator/info`
+- `/actuator/metrics`
+
+You can enable Prometheus metrics through Micrometer if required.
+
+## Developer notes & common flows
+
+Credit evaluation flow (summary):
+
+1. Affiliate submits application (PENDING).
+2. App calls `RISK_SERVICE_URL` `/risk-evaluation` with {documento, monto, plazo}.
+3. Risk service returns {score, nivelRiesgo, detalle} (deterministic per documento).
+4. App applies internal policies (quota/income, max by salary, seniority) and decides APROBADO/RECHAZADO.
+5. Evaluation saved and application updated transactionally.
+
+## Troubleshooting
+
+- Flyway errors: verify DB credentials and `FLYWAY_*` env variables.
+- JWT errors: check `JWT_SECRET` consistency and that your system clock is correct.
+- Risk service unreachable: ensure `RISK_SERVICE_URL` is reachable (inside compose use `http://risk:8081`).
+
+## Next steps / Useful additions
+
+- Add a Postman collection for main flows (register, login, create application).
+- Add small dev-only SQL to create users with clear passwords (never commit real secrets).
+- Add more tests (security, edge-cases, policy boundaries).
+
+---
+
+If you want, I can now:
+
+1. Add a Postman collection and link it here.
+2. Run `docker-compose up --build` and perform a smoke test (register, login, create application) and report the results.
+3. Seed dev users with readable passwords (dev-only migration) to simplify local testing.
+
+Choose what you want me to do next.
+
 # CoopCredit-App - Sistema de Solicitudes de Crédito 🏦
 
 ## 📋 Descripción
@@ -248,22 +437,3 @@ docker-compose down
 
 - **Swagger UI**: http://localhost:8080/swagger-ui/index.html
 - **OpenAPI JSON**: http://localhost:8080/v3/api-docs
-
-## ✅ Estado del Proyecto
-
-- ✅ **75 archivos Java** completados
-- ✅ **Compilación**: BUILD SUCCESS
-- ✅ **Jar**: CoopCredit-0.0.1-SNAPSHOT.jar (60MB)
-- ✅ **Arquitectura Hexagonal**: Completa
-- ✅ **Principios SOLID**: Implementados
-- ✅ **Todos los requisitos**: Cumplidos
-
-## 📄 Licencia
-
-Proyecto académico para CoopCredit.
-
----
-
-**Versión**: 1.0.0  
-**Estado**: ✅ Producción Listo  
-**Última Actualización**: Diciembre 2024
