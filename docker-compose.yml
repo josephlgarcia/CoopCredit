@@ -1,0 +1,63 @@
+services:
+  # Servicio de base de datos postgres
+  postgres:
+    image: postgres:15
+    container_name: postgres-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Servicio de la aplicación Spring Boot
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${APP_NAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${SERVER_PORT}:8080"
+    env_file:
+      - .env
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_JPA_HIBERNATE_DDL_AUTO: ${SPRING_JPA_HIBERNATE_DDL_AUTO}
+      SPRING_JPA_SHOW_SQL: "${SPRING_JPA_SHOW_SQL}"
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+
+      SPRING_FLYWAY_ENABLED: ${FLYWAY_ENABLED}
+      SPRING_FLYWAY_BASELINE_ON_MIGRATE: ${FLYWAY_BASELINE_ON_MIGRATE}
+      SPRING_FLYWAY_LOCATIONS: ${FLYWAY_LOCATIONS}
+      SPRING_FLYWAY_SCHEMAS: ${FLYWAY_SCHEMAS}
+      # URL del servicio de riesgo (forma relajada: RISK_SERVICE_URL -> risk.service.url)
+      RISK_SERVICE_URL: ${RISK_SERVICE_URL:-http://risk:8081}
+    restart: unless-stopped
+
+  # Servicio mock de central de riesgo (ligero, sin JPA ni seguridad)
+  risk:
+    build:
+      context: ./risk-central-mock-service
+      dockerfile: Dockerfile
+    container_name: risk-central-mock-service
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
